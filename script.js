@@ -40,9 +40,9 @@ const THEMES = {
     "Bumbu","Terpal","Keranjang Bambu","Tawar-Menawar"
   ],
   "Bioskop": [
-    "Popcorn","Tiket","Layar Besar","Proyektor Film","Kursi Empuk",
+    "Popcorn","Tiket","Cinepolis","XX1","Hollywood",
     "Trailer","Earphone","AC Dingin","Antrian","Kacamata 3D",
-    "Minuman Besar","Gelap","Subtitle","Sinema"
+    "Coca Cola","Gelap","Subtitle","Sinema"
   ],
   "Film": [
     "Laskar Pelangi","Pengabdi Setan","Ada Apa Dengan Cinta?","Dilan 1990","Warkop DKI Reborn",
