@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#05070f">
+  <title>Siapa Penyusup? — Pemain</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- PeerJS untuk koneksi WebRTC dengan host -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body class="player-body">
+
+<!-- ═══════════════════════════════════
+     LAYAR 1: BERGABUNG
+     Form nama + kode ruangan
+     ═══════════════════════════════════ -->
+<div id="screen-join" class="screen active">
+
+  <div class="player-header">
+    <div class="player-logo">SP?</div>
+  </div>
+
+  <div class="join-container">
+    <div class="join-title">
+      SIAPA
+      <span>PENYUSUP?</span>
+    </div>
+
+    <!-- Input Kode Ruangan -->
+    <div class="input-group">
+      <div class="input-label">KODE RUANGAN</div>
+      <input
+        id="input-room"
+        type="text"
+        class="input-field"
+        placeholder="Contoh: ABCD"
+        maxlength="4"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="characters"
+        spellcheck="false"
+        style="text-transform:uppercase; letter-spacing:8px; font-family:var(--font-mono); font-size:1.4rem; text-align:center;"
+      >
+    </div>
+
+    <!-- Input Nama Pemain -->
+    <div class="input-group">
+      <div class="input-label">NAMA KAMU</div>
+      <input
+        id="input-name"
+        type="text"
+        class="input-field"
+        placeholder="Masukkan namamu..."
+        maxlength="16"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+      >
+    </div>
+
+    <!-- Pesan error (tersembunyi secara default) -->
+    <div id="join-error" class="error-msg">Pesan error di sini</div>
+
+    <!-- Tombol Bergabung -->
+    <button id="btn-join" class="btn btn-primary btn-large">
+      🚪 BERGABUNG
+    </button>
+
+    <div style="text-align:center; font-size:0.8rem; color:var(--muted); margin-top:-8px;">
+      Minta kode ruangan dari host (layar PC/TV)
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     LAYAR 2: MENUNGGU
+     Setelah bergabung, tunggu host mulai
+     ═══════════════════════════════════ -->
+<div id="screen-waiting" class="screen">
+
+  <div class="player-header">
+    <div class="player-logo">SP?</div>
+    <div id="badge-room" class="player-room-badge">----</div>
+  </div>
+
+  <div class="waiting-container">
+    <div style="font-size:2.5rem; animation:pulse-ring 2s ease infinite;">⏳</div>
+
+    <div>
+      <div class="waiting-name" id="waiting-player-name">NAMAMU</div>
+      <div class="waiting-status">Sudah bergabung!</div>
+    </div>
+
+    <div class="waiting-players">
+      <div class="waiting-players-title">PEMAIN DI RUANGAN</div>
+      <div id="waiting-player-list" class="waiting-player-list">
+        <!-- Diisi oleh JavaScript -->
+      </div>
+    </div>
+
+    <div style="font-size:0.85rem; color:var(--muted); text-align:center; line-height:1.6;">
+      Menunggu host memulai permainan...<br>
+      <span style="font-size:0.75rem;">Jangan tutup halaman ini!</span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     LAYAR 3: PERAN RAHASIA
+     Reveal dramatis — PENYUSUP atau KREW
+     ═══════════════════════════════════ -->
+<div id="screen-role" class="screen">
+
+  <div class="player-header">
+    <div class="player-logo">SP?</div>
+    <div id="role-room-badge" class="player-room-badge">----</div>
+  </div>
+
+  <div class="role-screen-inner">
+
+    <!-- Kartu peran (class berubah: impostor-card atau crew-card) -->
+    <div id="role-card" class="role-reveal-card crew-card">
+      <div class="role-icon" id="role-icon">🕵️</div>
+      <div class="role-label">PERAN RAHASIA KAMU</div>
+      <div class="role-name" id="role-name">---</div>
+      <div id="role-theme-badge" class="role-theme-badge">TEMA: ---</div>
+    </div>
+
+    <!-- Pesan tambahan sesuai peran -->
+    <div id="role-warning" class="role-warning text-muted"></div>
+
+    <!-- Tombol konfirmasi -->
+    <button id="btn-role-ready" class="btn btn-primary">
+      ✅ SAYA SUDAH MEMBACA
+    </button>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     LAYAR 4: DISKUSI
+     Pengingat peran + timer countdown
+     ═══════════════════════════════════ -->
+<div id="screen-discussion" class="screen">
+
+  <div class="player-header">
+    <div class="player-logo">SP?</div>
+    <div id="discuss-room-badge" class="player-room-badge">----</div>
+  </div>
+
+  <div class="discussion-player-container">
+
+    <!-- Pengingat peran kecil di atas -->
+    <div class="role-reminder">
+      <div class="reminder-icon" id="remind-icon">🧩</div>
+      <div class="reminder-text">
+        <div class="reminder-label">PERAN KAMU</div>
+        <div class="reminder-value" id="remind-value">---</div>
+      </div>
+    </div>
+
+    <!-- Timer dengan ring SVG -->
+    <div class="timer-player-container">
+      <div class="timer-player-label">SISA WAKTU DISKUSI</div>
+      <div class="timer-player-ring-wrap">
+        <svg class="timer-player-ring" viewBox="0 0 120 120">
+          <circle class="ring-bg" cx="60" cy="60" r="54"/>
+          <circle class="ring-progress" id="player-ring-progress" cx="60" cy="60" r="54"/>
+        </svg>
+        <div class="timer-text-player" id="player-timer-display">3:00</div>
+      </div>
+    </div>
+
+    <!-- Tips diskusi -->
+    <div class="discussion-tip" id="discuss-tip">
+      🗣️ <strong style="color:var(--text);">Tips berdiskusi:</strong><br><br>
+      Tanyakan sesuatu tentang objeknya.<br>
+      Contoh: <em>"Apakah benda itu digunakan setiap hari?"</em><br><br>
+      Perhatikan siapa yang tampak bingung atau memberikan jawaban aneh!
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     LAYAR 5: VOTING
+     Pilih siapa yang diduga penyusup
+     ═══════════════════════════════════ -->
+<div id="screen-voting" class="screen">
+
+  <div class="player-header">
+    <div class="player-logo">SP?</div>
+    <div id="vote-room-badge" class="player-room-badge">----</div>
+  </div>
+
+  <div class="voting-player-container">
+
+    <!-- Tampilan saat belum vote -->
+    <div id="vote-form">
+      <div class="voting-title">🗳️ PILIH PENYUSUP!</div>
+      <div class="voting-subtitle">Siapa menurutmu yang jadi penyusup?</div>
+
+      <!-- Daftar pemain untuk dipilih (diisi JS) -->
+      <div id="vote-players-list" class="vote-players-list"></div>
+
+      <button id="btn-confirm-vote" class="btn btn-danger btn-large" disabled>
+        🔍 KONFIRMASI PILIHAN
+      </button>
+    </div>
+
+    <!-- Tampilan setelah vote (tersembunyi dulu) -->
+    <div id="voted-state" class="voted-state" style="display:none; flex:1; width:100%;">
+      <div class="voted-icon">✅</div>
+      <div class="voted-text">SUARA TERKIRIM!</div>
+      <div class="voted-sub">Menunggu pemain lain memilih...<br>
+        <span id="vote-count-display" style="color:var(--gold); font-family:var(--font-mono);">0/0</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     LAYAR 6: HASIL
+     Pengumuman pemenang untuk pemain
+     ═══════════════════════════════════ -->
+<div id="screen-results" class="screen">
+
+  <div class="player-header">
+    <div class="player-logo">SP?</div>
+  </div>
+
+  <div class="player-result-container">
+
+    <!-- Emoji besar sesuai hasil -->
+    <div id="result-emoji" style="font-size:4rem; animation:pop-in .5s ease;">🎭</div>
+
+    <!-- Teks pemenang -->
+    <div id="result-winner-text" class="result-winner-text">---</div>
+
+    <!-- Info penyusup dan objek -->
+    <div class="result-impostor-reveal">
+      <div class="reveal-label">PENYUSUP ADALAH</div>
+      <div id="p-impostor-name" class="impostor-name" style="font-size:2.2rem;">---</div>
+      <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px;">
+        <div class="reveal-label">OBJEK RAHASIA</div>
+        <div id="p-secret-object" class="secret-object" style="font-size:1.8rem;">---</div>
+        <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;" id="p-theme-label">tema</div>
+      </div>
+    </div>
+
+    <!-- Pesan personal untuk pemain ini -->
+    <div id="personal-result" style="
+      font-size:0.95rem; color:var(--muted); text-align:center;
+      padding:12px 20px; background:var(--card);
+      border:1px solid var(--border); border-radius:var(--radius-lg);
+      width:100%; max-width:340px; animation:slide-up .4s ease .4s both;">
+    </div>
+
+    <div style="font-size:0.8rem; color:var(--muted); text-align:center; margin-top:4px;">
+      Tunggu host untuk memulai ronde berikutnya
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     LOGIKA JAVASCRIPT PEMAIN
+     ═══════════════════════════════════ -->
+<script src="script.js"></script>
+<script>
+// ════════════════════════════════════════════
+// STATE PEMAIN
+// ════════════════════════════════════════════
+
+let peer         = null;    // Objek PeerJS milik pemain
+let hostConn     = null;    // Koneksi ke host
+let myName       = '';      // Nama pemain ini
+let myPeerId     = '';      // PeerJS ID pemain ini
+let myRoomCode   = '';      // Kode ruangan yang diikuti
+let myRole       = null;    // 'impostor' atau 'crew'
+let myObject     = null;    // Objek yang diterima (null jika penyusup)
+let selectedVote = null;    // ID pemain yang dipilih untuk divote
+let hasVoted     = false;   // Apakah sudah vote
+
+
+// ════════════════════════════════════════════
+// ELEMEN DOM
+// ════════════════════════════════════════════
+
+const screens = {
+  join:       document.getElementById('screen-join'),
+  waiting:    document.getElementById('screen-waiting'),
+  role:       document.getElementById('screen-role'),
+  discussion: document.getElementById('screen-discussion'),
+  voting:     document.getElementById('screen-voting'),
+  results:    document.getElementById('screen-results')
+};
+
+
+// ════════════════════════════════════════════
+// FUNGSI BANTUAN
+// ════════════════════════════════════════════
+
+/** Tampilkan layar tertentu */
+function showScreen(name) {
+  Object.values(screens).forEach(s => s.classList.remove('active'));
+  screens[name].classList.add('active');
+}
+
+/** Tampilkan pesan error di form bergabung */
+function showError(msg) {
+  const el = document.getElementById('join-error');
+  el.textContent = msg;
+  el.classList.add('show');
+  // Auto hilang setelah 4 detik
+  setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+/** Set badge kode ruangan di semua layar */
+function setRoomBadges(code) {
+  ['badge-room', 'role-room-badge', 'discuss-room-badge', 'vote-room-badge']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = code;
+    });
+}
+
+/** Update timer di layar diskusi pemain */
+function updatePlayerTimer(timeLeft) {
+  document.getElementById('player-timer-display').textContent = formatTime(timeLeft);
+
+  // Update ring SVG
+  const ring         = document.getElementById('player-ring-progress');
+  const circumference = 2 * Math.PI * 54;
+  const progress     = timeLeft / 180;
+  ring.style.strokeDasharray  = circumference;
+  ring.style.strokeDashoffset = circumference * (1 - progress);
+
+  // Ubah merah saat hampir habis
+  if (timeLeft <= 30) {
+    document.getElementById('player-timer-display').style.color = 'var(--red)';
+    ring.classList.add('ring-danger');
+  }
+}
+
+
+// ════════════════════════════════════════════
+// PRA-ISI DARI URL
+// ════════════════════════════════════════════
+
+// Jika QR code di-scan, kode ruangan sudah ada di URL
+// Contoh: player.html?room=ABCD
+(function prefillFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  const room   = params.get('room');
+  if (room) {
+    document.getElementById('input-room').value = room.toUpperCase();
+    // Langsung fokus ke input nama
+    setTimeout(() => document.getElementById('input-name').focus(), 300);
+  }
+})();
+
+
+// ════════════════════════════════════════════
+// BERGABUNG KE RUANGAN
+// ════════════════════════════════════════════
+
+/** Dipanggil saat tombol BERGABUNG ditekan */
+function joinGame() {
+  const roomInput = document.getElementById('input-room').value.trim().toUpperCase();
+  const nameInput = document.getElementById('input-name').value.trim();
+
+  // Validasi input
+  if (!roomInput || roomInput.length !== 4) {
+    showError('Kode ruangan harus 4 karakter!');
+    return;
+  }
+  if (!nameInput || nameInput.length < 1) {
+    showError('Nama tidak boleh kosong!');
+    return;
+  }
+
+  myName     = nameInput;
+  myRoomCode = roomInput;
+
+  // Nonaktifkan tombol sementara
+  const btnJoin = document.getElementById('btn-join');
+  btnJoin.disabled  = true;
+  btnJoin.textContent = '⏳ Menghubungkan...';
+
+  // Inisialisasi PeerJS untuk pemain
+  initPlayerPeer();
+}
+
+/** Inisialisasi koneksi PeerJS pemain dan hubungkan ke host */
+function initPlayerPeer() {
+  // Buat peer dengan ID acak (tidak butuh ID khusus)
+  peer = new Peer({
+    host:   '0.peerjs.com',
+    port:   443,
+    secure: true
+  });
+
+  peer.on('open', (id) => {
+    myPeerId = id;
+    console.log('✅ Peer terhubung dengan ID:', id);
+    connectToHost();
+  });
+
+  peer.on('error', (err) => {
+    console.error('PeerJS error:', err);
+    showError('Gagal terhubung ke server. Coba lagi!');
+    const btnJoin     = document.getElementById('btn-join');
+    btnJoin.disabled  = false;
+    btnJoin.textContent = '🚪 BERGABUNG';
+  });
+}
+
+/** Hubungkan ke peer host menggunakan kode ruangan */
+function connectToHost() {
+  const hostPeerId = 'sp-host-' + myRoomCode;
+  console.log('🔌 Menghubungkan ke host:', hostPeerId);
+
+  hostConn = peer.connect(hostPeerId, { reliable: true });
+
+  // Timeout jika host tidak ditemukan
+  const timeout = setTimeout(() => {
+    if (!hostConn || !hostConn.open) {
+      showError('Kode ruangan tidak ditemukan! Periksa kode dan coba lagi.');
+      const btnJoin     = document.getElementById('btn-join');
+      btnJoin.disabled  = false;
+      btnJoin.textContent = '🚪 BERGABUNG';
+    }
+  }, 8000);
+
+  hostConn.on('open', () => {
+    clearTimeout(timeout);
+    console.log('✅ Terhubung ke host!');
+
+    // Kirim permintaan bergabung
+    hostConn.send({ type: MSG.JOIN, name: myName });
+  });
+
+  hostConn.on('data', (data) => {
+    handleHostMessage(data);
+  });
+
+  hostConn.on('close', () => {
+    console.warn('Koneksi ke host terputus');
+    showError('Koneksi terputus dari host. Muat ulang halaman.');
+  });
+
+  hostConn.on('error', (err) => {
+    clearTimeout(timeout);
+    console.error('Koneksi error:', err);
+    showError('Tidak bisa terhubung. Pastikan kode ruangan benar!');
+    const btnJoin     = document.getElementById('btn-join');
+    btnJoin.disabled  = false;
+    btnJoin.textContent = '🚪 BERGABUNG';
+  });
+}
+
+
+// ════════════════════════════════════════════
+// TANGANI PESAN DARI HOST
+// ════════════════════════════════════════════
+
+function handleHostMessage(data) {
+  console.log('📨 Pesan dari host:', data.type);
+
+  switch (data.type) {
+
+    // ── Bergabung berhasil ──
+    case MSG.JOINED:
+      document.getElementById('waiting-player-name').textContent =
+        data.name.toUpperCase();
+      setRoomBadges(myRoomCode);
+      showScreen('waiting');
+      break;
+
+    // ── Update daftar pemain ──
+    case MSG.PLAYER_LIST:
+      renderWaitingPlayers(data.players);
+      break;
+
+    // ── Game dimulai ──
+    case MSG.START_GAME:
+      // Layar akan berubah setelah menerima peran
+      break;
+
+    // ── Terima peran rahasia ──
+    case MSG.ROLE:
+      receiveRole(data);
+      break;
+
+    // ── Masuk fase diskusi ──
+    case MSG.PHASE_DISCUSS:
+      showScreen('discussion');
+      break;
+
+    // ── Update timer ──
+    case MSG.TIMER_UPDATE:
+      updatePlayerTimer(data.timeLeft);
+      break;
+
+    // ── Masuk fase voting ──
+    case MSG.VOTING_START:
+      setupVoting(data.players);
+      break;
+
+    // ── Update progress voting ──
+    case MSG.VOTE_UPDATE:
+      // Update jumlah yang sudah vote (untuk yang sudah vote)
+      if (hasVoted) {
+        const totalPlayers = document.querySelectorAll('.vote-player-btn').length;
+        document.getElementById('vote-count-display').textContent =
+          `${data.voted}/${totalPlayers} sudah memilih`;
+      }
+      break;
+
+    // ── Hasil akhir ──
+    case MSG.RESULTS:
+      showResults(data);
+      break;
+
+    // ── Main lagi ──
+    case MSG.RESTART:
+      resetPlayerState();
+      showScreen('waiting');
+      break;
+
+    // ── Error dari host ──
+    case MSG.ERROR:
+      showError(data.msg);
+      const btnJoin     = document.getElementById('btn-join');
+      btnJoin.disabled  = false;
+      btnJoin.textContent = '🚪 BERGABUNG';
+      break;
+  }
+}
+
+
+// ════════════════════════════════════════════
+// RENDER FUNGSI
+// ════════════════════════════════════════════
+
+/** Render daftar pemain di layar menunggu */
+function renderWaitingPlayers(players) {
+  const list = document.getElementById('waiting-player-list');
+  list.innerHTML = players.map(p => `
+    <div class="waiting-player-item">
+      <div class="waiting-dot"></div>
+      <span>${p.name}</span>
+      ${p.name === myName ? '<span style="color:var(--cyan); font-size:0.75rem; margin-left:auto;">(kamu)</span>' : ''}
+    </div>
+  `).join('');
+}
+
+/** Tampilkan peran rahasia dengan animasi dramatis */
+function receiveRole(data) {
+  myRole   = data.isImpostor ? 'impostor' : 'crew';
+  myObject = data.object;
+
+  const card    = document.getElementById('role-card');
+  const icon    = document.getElementById('role-icon');
+  const name    = document.getElementById('role-name');
+  const badge   = document.getElementById('role-theme-badge');
+  const warning = document.getElementById('role-warning');
+
+  if (data.isImpostor) {
+    // ── Peran: PENYUSUP ──
+    card.className        = 'role-reveal-card impostor-card';
+    icon.textContent      = '😈';
+    name.textContent      = 'PENYUSUP';
+    badge.textContent     = `TEMA: ${data.theme}`;
+    warning.innerHTML     = `⚠️ <strong style="color:var(--red);">KAMU PENYUSUP!</strong><br>
+      Kamu TIDAK tahu objeknya. Berpura-puralah seolah kamu tahu!<br>
+      Jangan sampai ketahuan!`;
+  } else {
+    // ── Peran: KREW ──
+    card.className        = 'role-reveal-card crew-card';
+    icon.textContent      = '🧩';
+    name.textContent      = data.object;
+    badge.textContent     = `TEMA: ${data.theme}`;
+    warning.innerHTML     = `✅ Kamu adalah <strong style="color:var(--cyan);">KREW</strong>.<br>
+      Objek rahasia ini ada di tema <em>${data.theme}</em>.<br>
+      Jangan beri tahu penyusup! Temukan siapa yang tidak tahu!`;
+  }
+
+  // Isi reminder di layar diskusi
+  const remindValue = document.getElementById('remind-value');
+  const remindIcon  = document.getElementById('remind-icon');
+  if (data.isImpostor) {
+    remindValue.textContent  = 'PENYUSUP 😈';
+    remindValue.className    = 'reminder-value impostor';
+    remindIcon.textContent   = '😈';
+    document.getElementById('discuss-tip').innerHTML = `
+      💡 <strong style="color:var(--text);">Kamu PENYUSUP!</strong><br><br>
+      Kamu tidak tahu objeknya. Dengarkan apa yang dikatakan orang lain<br>
+      dan coba ikuti jawaban mereka agar tidak ketahuan!<br><br>
+      <em style="color:var(--red);">Tema: ${data.theme}</em>
+    `;
+  } else {
+    remindValue.textContent = data.object;
+    remindValue.className   = 'reminder-value';
+    remindIcon.textContent  = '🧩';
+  }
+
+  showScreen('role');
+}
+
+/** Siapkan layar voting dengan daftar pemain */
+function setupVoting(players) {
+  hasVoted     = false;
+  selectedVote = null;
+
+  // Tampilkan form vote (bukan state sudah-vote)
+  document.getElementById('vote-form').style.display  = 'flex';
+  document.getElementById('vote-form').style.flexDirection = 'column';
+  document.getElementById('vote-form').style.gap = '16px';
+  document.getElementById('voted-state').style.display = 'none';
+
+  const list  = document.getElementById('vote-players-list');
+  const btnVote = document.getElementById('btn-confirm-vote');
+  btnVote.disabled = true;
+
+  // Render setiap pemain sebagai tombol yang bisa dipilih
+  list.innerHTML = players.map(p => {
+    const isSelf = (p.name === myName);
+    return `
+      <button
+        class="vote-player-btn ${isSelf ? 'self' : ''}"
+        data-id="${p.id}"
+        data-name="${p.name}"
+        ${isSelf ? 'disabled title="Kamu tidak bisa memilih dirimu sendiri"' : ''}
+      >
+        <div class="vote-player-avatar">${p.name.charAt(0).toUpperCase()}</div>
+        <span>${p.name}</span>
+        ${isSelf ? '<span style="font-size:0.75rem; color:var(--muted);">(kamu)</span>' : ''}
+      </button>
+    `;
+  }).join('');
+
+  // Event listener untuk setiap tombol pemain
+  list.querySelectorAll('.vote-player-btn:not(.self)').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Hapus seleksi sebelumnya
+      list.querySelectorAll('.vote-player-btn').forEach(b => b.classList.remove('selected'));
+      // Pilih yang ini
+      btn.classList.add('selected');
+      selectedVote = btn.dataset.id;
+      btnVote.disabled = false;
+    });
+  });
+
+  showScreen('voting');
+}
+
+/** Tampilkan hasil akhir untuk pemain ini */
+function showResults(data) {
+  const isImpostor = (myRole === 'impostor');
+  const crewWins   = (data.winner === 'crew');
+
+  // Tentukan apakah pemain ini menang
+  let playerWins;
+  if (isImpostor) {
+    playerWins = !crewWins; // Penyusup menang jika krew kalah
+  } else {
+    playerWins = crewWins;  // Krew menang jika krew menang
+  }
+
+  // Tampilkan emoji dan teks pemenang
+  document.getElementById('result-emoji').textContent    = playerWins ? '🏆' : '💀';
+  const winnerText = document.getElementById('result-winner-text');
+  if (crewWins) {
+    winnerText.textContent = '🎉 KREW MENANG!';
+    winnerText.style.color = 'var(--green)';
+  } else {
+    winnerText.textContent = '😈 PENYUSUP MENANG!';
+    winnerText.style.color = 'var(--red)';
+  }
+
+  // Info penyusup dan objek
+  document.getElementById('p-impostor-name').textContent = data.impostorName;
+  document.getElementById('p-secret-object').textContent = data.object;
+  document.getElementById('p-theme-label').textContent   = `tema: ${data.theme}`;
+
+  // Pesan personal sesuai peran pemain ini
+  const personalEl = document.getElementById('personal-result');
+  if (isImpostor && !crewWins) {
+    personalEl.innerHTML = `<span style="color:var(--red);">😈 Kamu berhasil menipu semua orang!</span>`;
+  } else if (isImpostor && crewWins) {
+    personalEl.innerHTML = `<span style="color:var(--muted);">😅 Kamu ketahuan sebagai penyusup!</span>`;
+  } else if (!isImpostor && crewWins) {
+    personalEl.innerHTML = `<span style="color:var(--green);">🎉 Kamu berhasil mengidentifikasi penyusup!</span>`;
+  } else {
+    personalEl.innerHTML = `<span style="color:var(--muted);">😔 Krew gagal menemukan penyusup...</span>`;
+  }
+
+  showScreen('results');
+}
+
+
+// ════════════════════════════════════════════
+// KONFIRMASI VOTE
+// ════════════════════════════════════════════
+
+function confirmVote() {
+  if (!selectedVote || hasVoted) return;
+
+  hasVoted = true;
+
+  // Kirim vote ke host
+  hostConn.send({ type: MSG.VOTE, targetId: selectedVote });
+
+  // Tampilkan state sudah vote
+  document.getElementById('vote-form').style.display  = 'none';
+  document.getElementById('voted-state').style.display = 'flex';
+  document.getElementById('voted-state').style.flexDirection = 'column';
+
+  console.log('🗳️ Vote terkirim ke:', selectedVote);
+}
+
+
+// ════════════════════════════════════════════
+// RESET STATE (main lagi)
+// ════════════════════════════════════════════
+
+function resetPlayerState() {
+  myRole       = null;
+  myObject     = null;
+  selectedVote = null;
+  hasVoted     = false;
+
+  // Reset tampilan timer
+  document.getElementById('player-timer-display').textContent  = '3:00';
+  document.getElementById('player-timer-display').style.color  = '';
+  document.getElementById('player-ring-progress').classList.remove('ring-danger');
+
+  // Reset progress ring
+  const ring          = document.getElementById('player-ring-progress');
+  const circumference = 2 * Math.PI * 54;
+  ring.style.strokeDasharray  = circumference;
+  ring.style.strokeDashoffset = 0;
+}
+
+
+// ════════════════════════════════════════════
+// EVENT LISTENERS
+// ════════════════════════════════════════════
+
+// Tombol Bergabung
+document.getElementById('btn-join').addEventListener('click', joinGame);
+
+// Enter di input juga trigger join
+document.getElementById('input-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinGame();
+});
+document.getElementById('input-room').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('input-name').focus();
+});
+
+// Paksa uppercase untuk kode ruangan
+document.getElementById('input-room').addEventListener('input', e => {
+  e.target.value = e.target.value.toUpperCase();
+});
+
+// Tombol konfirmasi peran
+document.getElementById('btn-role-ready').addEventListener('click', () => {
+  // Setelah konfirmasi peran, tampilkan layar diskusi
+  // (fase diskusi dimulai oleh host via broadcast)
+  showScreen('discussion');
+});
+
+// Tombol konfirmasi vote
+document.getElementById('btn-confirm-vote').addEventListener('click', confirmVote);
+</script>
+</body>
+</html>

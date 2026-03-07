@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Siapa Penyusup? — Layar Host</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- PeerJS untuk komunikasi WebRTC -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <!-- QRCode.js untuk membuat kode QR -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body class="host-body">
+
+<!-- Animasi latar belakang -->
+<canvas id="bg-canvas" class="bg-canvas"></canvas>
+
+<!-- Overlay loading saat terhubung ke PeerJS -->
+<div id="connect-overlay" class="connect-overlay">
+  <div class="spinner"></div>
+  <span>MENGHUBUNGKAN...</span>
+</div>
+
+<!-- ═══════════════════════════════════
+     LAYAR 1: LOBBY
+     Menampilkan kode ruangan, QR, daftar pemain
+     ═══════════════════════════════════ -->
+<div id="screen-lobby" class="screen">
+
+  <div class="host-header">
+    <div class="game-title">SIAPA PENYUSUP?</div>
+    <div class="subtitle">Party Social Deduction Game</div>
+  </div>
+
+  <div class="lobby-layout">
+    <!-- Kiri: Kode Ruangan + QR Code -->
+    <div class="lobby-left">
+      <div class="join-card">
+        <div class="join-label">KODE RUANGAN</div>
+        <div id="room-code" class="room-code">----</div>
+        <div id="qr-code" class="qr-container"></div>
+        <div class="join-url-label">📱 Scan QR atau ketik kode di ponsel</div>
+      </div>
+    </div>
+
+    <!-- Kanan: Daftar Pemain + Tombol Mulai -->
+    <div class="lobby-right">
+      <div class="panel" style="flex:1; display:flex; flex-direction:column;">
+        <div class="panel-header">
+          <span>DAFTAR PEMAIN</span>
+          <span id="player-count" class="text-cyan">0 / 8</span>
+        </div>
+
+        <!-- List pemain yang sudah bergabung -->
+        <div id="player-list-lobby" class="player-list" style="flex:1;"></div>
+
+        <!-- Status dan tombol mulai -->
+        <div id="status-msg" class="status-msg">⏳ Menunggu pemain bergabung...</div>
+        <button id="btn-start" class="btn btn-primary" disabled
+          style="margin:12px 16px 16px; font-size:1.5rem; padding:16px;">
+          ▶ MULAI PERMAINAN
+        </button>
+      </div>
+
+      <!-- Petunjuk singkat -->
+      <div class="card" style="font-size:0.85rem; color:var(--muted); line-height:1.8;">
+        <div style="font-family:var(--font-display); letter-spacing:3px; color:var(--text); margin-bottom:8px; font-size:0.9rem;">CARA BERMAIN</div>
+        🔍 Satu pemain akan menjadi <span class="text-red">PENYUSUP</span> secara rahasia<br>
+        🧩 Pemain lain dapat tema & objek yang sama<br>
+        🗣️ Diskusikan siapa yang tidak tahu objeknya<br>
+        🗳️ Vote siapa yang menurut kalian penyusup!
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     LAYAR 2: PEMBAGIAN PERAN
+     Hitungan mundur saat peran dibagikan
+     ═══════════════════════════════════ -->
+<div id="screen-role-assign" class="screen">
+  <div class="center-screen">
+    <div style="font-size:3rem; margin-bottom:8px;">🎭</div>
+    <div class="big-announce">MEMBAGIKAN PERAN...</div>
+    <div class="sub-announce">Periksa ponsel Anda masing-masing!</div>
+    <div id="role-countdown" class="countdown-big">5</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     LAYAR 3: DISKUSI
+     Timer, tema, dan daftar pemain
+     ═══════════════════════════════════ -->
+<div id="screen-discussion" class="screen">
+  <div class="discussion-layout">
+
+    <div class="discussion-top">
+      <div class="game-phase-label">⚔️ FASE DISKUSI</div>
+      <div class="theme-display">
+        TEMA: <span id="current-theme">DAPUR</span>
+      </div>
+    </div>
+
+    <!-- Ring Timer SVG -->
+    <div class="timer-ring-container">
+      <svg class="timer-ring" viewBox="0 0 120 120">
+        <!-- Lingkaran latar -->
+        <circle class="ring-bg" cx="60" cy="60" r="54"/>
+        <!-- Lingkaran progress (berkurang seiring waktu) -->
+        <circle class="ring-progress" id="ring-progress" cx="60" cy="60" r="54"/>
+      </svg>
+      <div class="timer-text" id="timer-display">3:00</div>
+    </div>
+
+    <div class="discussion-hint">
+      🕵️ Tanyakan tentang objeknya! Siapa yang tidak tahu? Temukan PENYUSUP di antara kalian!
+    </div>
+
+    <!-- Daftar pemain (chip) -->
+    <div class="panel players-panel">
+      <div class="panel-header">PEMAIN AKTIF</div>
+      <div id="player-list-game" class="player-chips"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     LAYAR 4: VOTING
+     Menunggu semua pemain memilih
+     ═══════════════════════════════════ -->
+<div id="screen-voting" class="screen">
+  <div class="center-screen">
+    <div style="font-size:3.5rem;">🗳️</div>
+    <div class="big-announce red-glow">WAKTU MEMILIH!</div>
+    <div class="sub-announce">Gunakan ponsel untuk memilih penyusup yang kalian curigai</div>
+
+    <div class="vote-tracker">
+      <div class="vote-tracker-label">SUDAH MEMILIH</div>
+      <div id="vote-progress" class="vote-progress">0 / 0</div>
+      <div id="vote-list" class="vote-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     LAYAR 5: HASIL
+     Pengumuman pemenang dan rincian suara
+     ═══════════════════════════════════ -->
+<div id="screen-results" class="screen">
+  <div class="results-layout">
+
+    <!-- Banner pemenang (KREW MENANG / PENYUSUP MENANG) -->
+    <div id="winner-banner" class="winner-banner">---</div>
+
+    <!-- Siapa penyusupnya -->
+    <div class="impostor-reveal">
+      <div class="reveal-label">PENYUSUP ADALAH</div>
+      <div id="impostor-name" class="impostor-name">---</div>
+    </div>
+
+    <!-- Objek rahasia yang digunakan -->
+    <div class="object-reveal">
+      <div class="reveal-label">OBJEK RAHASIA — <span id="result-theme" style="color:var(--muted);"></span></div>
+      <div id="secret-object" class="secret-object">---</div>
+    </div>
+
+    <!-- Rincian suara setiap pemain -->
+    <div class="vote-breakdown" style="width:100%;">
+      <div class="breakdown-title">REKAPITULASI SUARA</div>
+      <div id="vote-breakdown" class="breakdown-list"></div>
+    </div>
+
+    <button id="btn-restart" class="btn btn-primary" style="font-size:1.3rem; padding:16px 48px;">
+      🔄 MAIN LAGI
+    </button>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     LOGIKA JAVASCRIPT HOST
+     ═══════════════════════════════════ -->
+<script src="script.js"></script>
+<script>
+// ════════════════════════════════════════════
+// STATE GAME
+// ════════════════════════════════════════════
+
+let peer      = null;         // Objek PeerJS milik host
+let roomCode  = '';           // Kode ruangan (4 huruf)
+let gameState = 'lobby';      // State saat ini: lobby|roleAssign|discussion|voting|results
+
+// Data pemain: { peerId: { name, conn, voted, voteTarget } }
+let players = {};
+
+// Data game aktif
+let currentTheme  = '';
+let currentObject = '';
+let impostorId    = '';       // PeerJS ID pemain yang jadi penyusup
+
+// Timer
+let timerInterval  = null;
+let timeLeft       = 180;     // 3 menit diskusi
+let roleCountdown  = null;
+
+
+// ════════════════════════════════════════════
+// ELEMEN DOM
+// ════════════════════════════════════════════
+
+const screens = {
+  lobby:      document.getElementById('screen-lobby'),
+  roleAssign: document.getElementById('screen-role-assign'),
+  discussion: document.getElementById('screen-discussion'),
+  voting:     document.getElementById('screen-voting'),
+  results:    document.getElementById('screen-results')
+};
+
+const overlay = document.getElementById('connect-overlay');
+
+
+// ════════════════════════════════════════════
+// FUNGSI BANTUAN TAMPILAN
+// ════════════════════════════════════════════
+
+/** Tampilkan layar tertentu, sembunyikan yang lain */
+function showScreen(name) {
+  Object.values(screens).forEach(s => s.classList.remove('active'));
+  screens[name].classList.add('active');
+}
+
+/** Update tampilan daftar pemain di lobby */
+function updatePlayerListLobby() {
+  const list     = document.getElementById('player-list-lobby');
+  const countEl  = document.getElementById('player-count');
+  const btnStart = document.getElementById('btn-start');
+  const statusEl = document.getElementById('status-msg');
+
+  const arr = Object.values(players);
+  countEl.textContent = `${arr.length} / 8`;
+
+  // Render setiap pemain sebagai item list
+  list.innerHTML = arr.map(p => `
+    <div class="player-item">
+      <div class="player-avatar">${p.name.charAt(0).toUpperCase()}</div>
+      <span>${p.name}</span>
+    </div>
+  `).join('');
+
+  // Aktifkan tombol mulai jika sudah minimal 3 pemain
+  if (arr.length >= 3) {
+    btnStart.disabled = false;
+    statusEl.textContent = `✅ Siap! ${arr.length} pemain sudah bergabung.`;
+  } else {
+    btnStart.disabled = true;
+    const need = 3 - arr.length;
+    statusEl.textContent = `⏳ Butuh ${need} pemain lagi untuk mulai...`;
+  }
+}
+
+/** Update chip pemain di layar diskusi */
+function updatePlayerChips() {
+  const chips = document.getElementById('player-list-game');
+  chips.innerHTML = Object.values(players)
+    .map(p => `<div class="player-chip">${p.name}</div>`)
+    .join('');
+}
+
+/** Update tampilan timer (display + ring SVG) */
+function updateTimerDisplay() {
+  const timerEl = document.getElementById('timer-display');
+  timerEl.textContent = formatTime(timeLeft);
+
+  // Update lingkaran progress SVG
+  const ring        = document.getElementById('ring-progress');
+  const circumference = 2 * Math.PI * 54; // r = 54
+  const progress    = timeLeft / 180;
+  ring.style.strokeDasharray  = circumference;
+  ring.style.strokeDashoffset = circumference * (1 - progress);
+
+  // Ubah warna merah saat waktu tinggal 30 detik
+  if (timeLeft <= 30) {
+    timerEl.classList.add('timer-danger');
+    ring.classList.add('ring-danger');
+  }
+}
+
+/** Update tampilan progress voting */
+function updateVoteProgress() {
+  const total  = Object.keys(players).length;
+  const voted  = Object.values(players).filter(p => p.voted).length;
+
+  document.getElementById('vote-progress').textContent = `${voted} / ${total}`;
+
+  // Tampilkan siapa saja yang sudah/belum vote
+  document.getElementById('vote-list').innerHTML = Object.values(players)
+    .map(p => `
+      <div class="vote-status ${p.voted ? 'voted' : ''}">
+        <span>${p.name}</span>
+        <span class="vote-dot">${p.voted ? '✓ Sudah' : '... Belum'}</span>
+      </div>
+    `).join('');
+}
+
+
+// ════════════════════════════════════════════
+// FUNGSI BROADCAST
+// ════════════════════════════════════════════
+
+/** Kirim pesan ke SEMUA pemain yang terhubung */
+function broadcast(data) {
+  Object.values(players).forEach(p => {
+    if (p.conn && p.conn.open) {
+      p.conn.send(data);
+    }
+  });
+}
+
+/** Kirim daftar pemain terkini ke semua */
+function broadcastPlayerList() {
+  const arr = Object.entries(players).map(([id, p]) => ({ id, name: p.name }));
+  broadcast({ type: MSG.PLAYER_LIST, players: arr });
+}
+
+
+// ════════════════════════════════════════════
+// INISIALISASI HOST (PeerJS)
+// ════════════════════════════════════════════
+
+function initHost() {
+  roomCode = generateRoomCode();
+
+  // Buat Peer dengan ID unik berdasarkan kode ruangan
+  // Prefix "sp-" = "siapa-penyusup" untuk menghindari konflik
+  peer = new Peer('sp-host-' + roomCode, {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true
+  });
+
+  // Berhasil terhubung ke server PeerJS
+  peer.on('open', (id) => {
+    overlay.classList.add('hidden');
+    document.getElementById('room-code').textContent = roomCode;
+
+    // Buat URL bergabung dengan kode ruangan di query string
+    const base = window.location.href.replace('index.html', '');
+    const joinUrl = base + 'player.html?room=' + roomCode;
+
+    // Generate QR Code yang mengarah ke halaman pemain
+    new QRCode(document.getElementById('qr-code'), {
+      text: joinUrl,
+      width: 160, height: 160,
+      colorDark:  '#f1f5f9',
+      colorLight: '#0d1220'
+    });
+
+    console.log('✅ Host aktif. Kode:', roomCode);
+    console.log('🔗 Link bergabung:', joinUrl);
+  });
+
+  // Error (misalnya kode ruangan sudah dipakai)
+  peer.on('error', (err) => {
+    console.error('PeerJS error:', err.type, err);
+    if (err.type === 'unavailable-id') {
+      // Coba lagi dengan kode baru
+      console.warn('ID sudah dipakai, mencoba kode baru...');
+      setTimeout(() => initHost(), 500);
+    }
+  });
+
+  // Ada pemain baru yang mencoba terhubung
+  peer.on('connection', (conn) => {
+    setupPlayerConnection(conn);
+  });
+}
+
+
+// ════════════════════════════════════════════
+// KONEKSI PEMAIN
+// ════════════════════════════════════════════
+
+/** Siapkan event listener untuk koneksi pemain */
+function setupPlayerConnection(conn) {
+  conn.on('open', () => {
+    console.log('🔌 Koneksi baru dari:', conn.peer);
+  });
+
+  conn.on('data', (data) => {
+    handlePlayerMessage(conn, data);
+  });
+
+  // Jika pemain disconnect
+  conn.on('close', () => {
+    if (players[conn.peer]) {
+      console.log('👋 Pemain keluar:', players[conn.peer].name);
+      if (gameState === 'lobby') {
+        delete players[conn.peer];
+        updatePlayerListLobby();
+        broadcastPlayerList();
+      }
+    }
+  });
+}
+
+/** Tangani pesan yang diterima dari pemain */
+function handlePlayerMessage(conn, data) {
+  switch (data.type) {
+    case MSG.JOIN:
+      handlePlayerJoin(conn, data);
+      break;
+    case MSG.VOTE:
+      handleVote(conn.peer, data.targetId);
+      break;
+    default:
+      console.log('Pesan tidak dikenal:', data.type);
+  }
+}
+
+/** Pemain meminta bergabung ke ruangan */
+function handlePlayerJoin(conn, data) {
+  // Tolak jika game sudah berjalan
+  if (gameState !== 'lobby') {
+    conn.send({ type: MSG.ERROR, msg: 'Game sudah dimulai! Tunggu ronde berikutnya.' });
+    return;
+  }
+
+  // Tolak jika ruangan penuh
+  if (Object.keys(players).length >= 8) {
+    conn.send({ type: MSG.ERROR, msg: 'Ruangan sudah penuh (maks 8 pemain)!' });
+    return;
+  }
+
+  // Tolak nama duplikat (tidak case-sensitive)
+  const nameLower = data.name.toLowerCase().trim();
+  const existingNames = Object.values(players).map(p => p.name.toLowerCase());
+  if (existingNames.includes(nameLower)) {
+    conn.send({ type: MSG.ERROR, msg: 'Nama ini sudah dipakai. Pilih nama lain!' });
+    return;
+  }
+
+  // Tolak nama kosong
+  if (!nameLower || nameLower.length < 1) {
+    conn.send({ type: MSG.ERROR, msg: 'Nama tidak boleh kosong!' });
+    return;
+  }
+
+  // Tambahkan ke daftar pemain
+  players[conn.peer] = {
+    name:       data.name.trim(),
+    conn:       conn,
+    voted:      false,
+    voteTarget: null
+  };
+
+  console.log(`✅ ${data.name} bergabung! Total: ${Object.keys(players).length}`);
+
+  // Kirim konfirmasi ke pemain yang baru bergabung
+  conn.send({ type: MSG.JOINED, name: data.name.trim() });
+
+  // Update tampilan dan broadcast ke semua
+  updatePlayerListLobby();
+  broadcastPlayerList();
+}
+
+
+// ════════════════════════════════════════════
+// ALUR GAME
+// ════════════════════════════════════════════
+
+/** Mulai game — dipanggil saat tombol START ditekan */
+function startGame() {
+  const playerIds = Object.keys(players);
+  if (playerIds.length < 3) return;
+
+  gameState = 'roleAssign';
+
+  // ── Pilih tema dan objek secara acak ──
+  const themeNames  = Object.keys(THEMES);
+  currentTheme  = themeNames[Math.floor(Math.random() * themeNames.length)];
+  const objects = THEMES[currentTheme];
+  currentObject = objects[Math.floor(Math.random() * objects.length)];
+
+  // ── Pilih satu pemain jadi penyusup secara acak ──
+  impostorId = playerIds[Math.floor(Math.random() * playerIds.length)];
+
+  console.log(`🎭 Game mulai! Tema: ${currentTheme}, Objek: ${currentObject}`);
+  console.log(`😈 Penyusup: ${players[impostorId].name}`);
+
+  // ── Kirim peran ke setiap pemain ──
+  playerIds.forEach(id => {
+    const isImpostor = (id === impostorId);
+    players[id].conn.send({
+      type:       MSG.ROLE,
+      isImpostor: isImpostor,
+      theme:      currentTheme,
+      object:     isImpostor ? null : currentObject  // Penyusup TIDAK tahu objeknya
+    });
+  });
+
+  // ── Tampilkan layar pembagian peran ──
+  showScreen('roleAssign');
+  broadcast({ type: MSG.START_GAME, theme: currentTheme });
+
+  // ── Hitung mundur 5 detik sebelum diskusi ──
+  let count = 5;
+  document.getElementById('role-countdown').textContent = count;
+
+  roleCountdown = setInterval(() => {
+    count--;
+    document.getElementById('role-countdown').textContent = count;
+    if (count <= 0) {
+      clearInterval(roleCountdown);
+      startDiscussion();
+    }
+  }, 1000);
+}
+
+/** Mulai fase diskusi */
+function startDiscussion() {
+  gameState = 'discussion';
+  timeLeft  = 180; // 3 menit
+
+  document.getElementById('current-theme').textContent = currentTheme.toUpperCase();
+  updatePlayerChips();
+  updateTimerDisplay();
+  showScreen('discussion');
+
+  broadcast({ type: MSG.PHASE_DISCUSS });
+
+  // Mulai countdown timer
+  timerInterval = setInterval(() => {
+    timeLeft--;
+    updateTimerDisplay();
+    broadcast({ type: MSG.TIMER_UPDATE, timeLeft });
+
+    if (timeLeft <= 0) {
+      clearInterval(timerInterval);
+      startVoting();
+    }
+  }, 1000);
+}
+
+/** Mulai fase voting */
+function startVoting() {
+  gameState = 'voting';
+
+  // Reset semua data vote
+  Object.keys(players).forEach(id => {
+    players[id].voted      = false;
+    players[id].voteTarget = null;
+  });
+
+  // Kirim daftar pemain untuk ditampilkan sebagai pilihan vote
+  const playerArray = Object.entries(players).map(([id, p]) => ({ id, name: p.name }));
+  broadcast({ type: MSG.VOTING_START, players: playerArray });
+
+  updateVoteProgress();
+  showScreen('voting');
+}
+
+/** Tangani vote yang masuk dari pemain */
+function handleVote(voterId, targetId) {
+  if (gameState !== 'voting')         return; // Bukan fase voting
+  if (!players[voterId])              return; // ID tidak valid
+  if (!players[targetId])             return; // Target tidak valid
+  if (players[voterId].voted)         return; // Sudah pernah vote
+
+  players[voterId].voted      = true;
+  players[voterId].voteTarget = targetId;
+
+  console.log(`🗳️ ${players[voterId].name} → ${players[targetId].name}`);
+
+  updateVoteProgress();
+
+  // Broadcast update ke semua agar pemain tahu progres
+  broadcast({ type: MSG.VOTE_UPDATE, voted: Object.values(players).filter(p => p.voted).length });
+
+  // Jika semua sudah vote, langsung tampilkan hasil
+  const allVoted = Object.values(players).every(p => p.voted);
+  if (allVoted) {
+    setTimeout(() => showResults(), 1500);
+  }
+}
+
+/** Hitung suara dan tampilkan hasil akhir */
+function showResults() {
+  gameState = 'results';
+
+  // ── Hitung suara tiap pemain ──
+  const voteCounts = {};
+  Object.keys(players).forEach(id => { voteCounts[id] = 0; });
+  Object.values(players).forEach(p => {
+    if (p.voteTarget && voteCounts[p.voteTarget] !== undefined) {
+      voteCounts[p.voteTarget]++;
+    }
+  });
+
+  // ── Cari siapa yang paling banyak divote ──
+  let maxVotes    = -1;
+  let eliminatedId = null;
+  Object.entries(voteCounts).forEach(([id, count]) => {
+    if (count > maxVotes) { maxVotes = count; eliminatedId = id; }
+  });
+
+  const impostorCaught = (eliminatedId === impostorId);
+  const winner         = impostorCaught ? 'crew' : 'impostor';
+
+  // ── Update tampilan ──
+  const winnerBanner = document.getElementById('winner-banner');
+  if (impostorCaught) {
+    winnerBanner.textContent = '🎉 KREW MENANG!';
+    winnerBanner.className   = 'winner-banner crew-win';
+  } else {
+    winnerBanner.textContent = '😈 PENYUSUP MENANG!';
+    winnerBanner.className   = 'winner-banner impostor-win';
+  }
+
+  document.getElementById('impostor-name').textContent = players[impostorId]?.name || '???';
+  document.getElementById('secret-object').textContent = currentObject;
+  document.getElementById('result-theme').textContent  = currentTheme;
+
+  // ── Rincian suara, diurutkan dari terbanyak ──
+  const sortedVotes = Object.entries(voteCounts).sort(([,a],[,b]) => b - a);
+  document.getElementById('vote-breakdown').innerHTML = sortedVotes.map(([id, count]) => `
+    <div class="breakdown-item ${id === impostorId ? 'is-impostor' : ''}">
+      <span class="breakdown-name">${players[id]?.name || '?'}</span>
+      <span class="breakdown-votes">${count} suara</span>
+      ${id === impostorId ? '<span class="impostor-tag">PENYUSUP</span>' : ''}
+    </div>
+  `).join('');
+
+  showScreen('results');
+
+  // Kirim hasil ke semua pemain
+  broadcast({
+    type:         MSG.RESULTS,
+    winner,
+    impostorName: players[impostorId]?.name,
+    object:       currentObject,
+    theme:        currentTheme
+  });
+}
+
+/** Reset game — kembali ke lobby */
+function restartGame() {
+  gameState     = 'lobby';
+  currentTheme  = '';
+  currentObject = '';
+  impostorId    = '';
+  timeLeft      = 180;
+
+  if (timerInterval) clearInterval(timerInterval);
+  if (roleCountdown)  clearInterval(roleCountdown);
+
+  // Reset data vote pemain (tapi jaga koneksi mereka)
+  Object.keys(players).forEach(id => {
+    players[id].voted      = false;
+    players[id].voteTarget = null;
+  });
+
+  // Reset tampilan timer
+  document.getElementById('timer-display').classList.remove('timer-danger');
+  document.getElementById('ring-progress').classList.remove('ring-danger');
+
+  updatePlayerListLobby();
+  showScreen('lobby');
+
+  broadcast({ type: MSG.RESTART });
+}
+
+
+// ════════════════════════════════════════════
+// EVENT LISTENERS
+// ════════════════════════════════════════════
+
+document.getElementById('btn-start').addEventListener('click', startGame);
+document.getElementById('btn-restart').addEventListener('click', restartGame);
+
+
+// ════════════════════════════════════════════
+// MULAI!
+// ════════════════════════════════════════════
+
+showScreen('lobby');
+initHost();        // Inisialisasi PeerJS host
+initBgCanvas();    // Animasi latar belakang
+</script>
+</body>
+</html>
